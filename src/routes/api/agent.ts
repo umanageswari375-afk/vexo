@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { verifyUser } from "@/lib/auth-server";
+import { explainAiError, shouldFallbackToSecondaryProvider } from "@/lib/ai-errors";
+import { getConfiguredApiKey } from "@/lib/ai-config";
 
 const SYSTEM = `You are the Vexo AI Agent, an autonomous coding agent inside the Vexo code editor.
 You build and modify real projects by writing files.
@@ -118,12 +120,20 @@ export const Route = createFileRoute("/api/agent")({
         if (!(await verifyUser(request)))
           return new Response("Please sign in again.", { status: 401 });
         const body = (await request.json()) as Body;
-        const lovableKey = process.env["LOVABLE_API_KEY"];
+
+        const openAiKey = getConfiguredApiKey("OPENAI_API_KEY");
+        if (openAiKey) return streamOpenAI(body, request, openAiKey);
+
+        const wireflowKey = getConfiguredApiKey("WIREFLOW_API_KEY");
+        if (wireflowKey) return streamWireflow(body, request, wireflowKey);
+
+        const deepseekKey = getConfiguredApiKey("DEEPSEEK_API_KEY");
+        if (deepseekKey) return streamDeepSeek(body, request, deepseekKey);
+
+        const lovableKey = getConfiguredApiKey("LOVABLE_API_KEY");
         if (lovableKey) return streamLovable(body, request, lovableKey);
-        const groqKey = (process.env["GROQ_API_KEY"] ?? "").trim();
-        if (groqKey) return streamGroq(body, request, groqKey);
         return new Response(
-          "AI is not configured. Add GROQ_API_KEY to your .env file (free key at console.groq.com/keys).",
+          "AI is not configured. Add OPENAI_API_KEY to your .env file (or set WIREFLOW_API_KEY / DEEPSEEK_API_KEY as fallbacks).",
           { status: 500 },
         );
       },
@@ -160,15 +170,11 @@ async function streamLovable(body: Body, request: Request, apiKey: string) {
 
   if (!upstream.ok || !upstream.body) {
     const t = await upstream.text().catch(() => "");
-    let msg = "The AI request failed.";
-    try {
-      msg = JSON.parse(t)?.error?.message ?? JSON.parse(t)?.message ?? msg;
-    } catch {
-      /* ignore */
+    const retryWithSecondary = shouldFallbackToSecondaryProvider(upstream.status, t);
+    if (retryWithSecondary && apiKey && process.env["LOVABLE_API_KEY"]) {
+      return streamLovable(body, request, process.env["LOVABLE_API_KEY"]!);
     }
-    if (upstream.status === 429) msg = "Too many requests — please wait a moment and try again.";
-    if (upstream.status === 402) msg = msg || "AI credits are used up for this workspace.";
-    return new Response(msg, { status: upstream.status });
+    return new Response(explainAiError(upstream.status, t), { status: upstream.status });
   }
 
   const reader = upstream.body.getReader();
@@ -220,14 +226,171 @@ async function streamLovable(body: Body, request: Request, apiKey: string) {
   return new Response(stream, { headers });
 }
 
-/** Groq — used for local development and self-hosted deployments. */
-async function streamGroq(body: Body, request: Request, apiKey: string) {
-  const model = (process.env["GROQ_MODEL"] ?? "openai/gpt-oss-120b").trim();
-  // Free Groq tiers cap tokens per minute (8k for gpt-oss-120b); stay well under it.
-  const tpm = Number(process.env["GROQ_TPM"] ?? 8000) || 8000;
+/** OpenAI — primary provider for local development. */
+async function streamOpenAI(body: Body, request: Request, apiKey: string) {
+  const baseUrl = (process.env["OPENAI_BASE_URL"] ?? "https://api.openai.com").trim().replace(/\/$/, "");
+  const model = (process.env["OPENAI_MODEL"] ?? "gpt-4o-mini").trim();
+  const tpm = Number(process.env["OPENAI_TPM"] ?? 50000) || 50000;
 
-  // Groq counts prompt + completion against the same TPM budget, so reserve the
-  // completion first and give the rest to context.
+  const completion = Math.min(4000, Math.max(1024, Math.floor(tpm * 0.3)));
+  const promptTokens = Math.max(1200, tpm - completion - 150);
+  const budgetChars = Math.max(2000, Math.floor(promptTokens * 0.8) * 4);
+
+  const attempt = async (ctxChars: number, historyChars: number, maxOut: number) => {
+    let used = 0;
+    const messages = [
+      { role: "system", content: SYSTEM },
+      { role: "user", content: buildContext(body, ctxChars) },
+      ...cleanHistory(
+        body.messages
+          .slice(-6)
+          .reverse()
+          .filter((m) => (used += m.content.length) <= historyChars)
+          .reverse(),
+      ),
+    ];
+    return fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      signal: request.signal,
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 0.3,
+        max_tokens: maxOut,
+        stream: true,
+      }),
+    });
+  };
+
+  let upstream = await attempt(budgetChars, Math.floor(budgetChars * 0.25), completion);
+
+  if (upstream.status === 413) {
+    const smaller = Math.max(1200, Math.floor(budgetChars / 3));
+    upstream = await attempt(smaller, Math.floor(smaller * 0.25), Math.floor(smaller / 4));
+  }
+
+  if (!upstream.ok || !upstream.body) {
+    const t = await upstream.text().catch(() => "");
+    return new Response(explainAiError(upstream.status, t), { status: upstream.status });
+  }
+
+  const enc = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      for await (const ev of sse(upstream.body!)) {
+        const delta = ev.choices?.[0]?.delta;
+        if (delta?.content) controller.enqueue(enc.encode(delta.content));
+      }
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+  });
+}
+
+/** Wireflow — OpenAI-compatible API. */
+async function streamWireflow(body: Body, request: Request, apiKey: string) {
+  const baseUrl = (process.env["WIREFLOW_BASE_URL"] ?? "").trim().replace(/\/$/, "");
+  if (!baseUrl) {
+    return new Response(
+      "Wireflow is not configured. Set WIREFLOW_BASE_URL to the exact API endpoint from your Wireflow dashboard.",
+      { status: 500 },
+    );
+  }
+
+  const model = (process.env["WIREFLOW_MODEL"] ?? "gpt-4o-mini").trim();
+  const tpm = Number(process.env["WIREFLOW_TPM"] ?? 50000) || 50000;
+
+  const completion = Math.min(4000, Math.max(1024, Math.floor(tpm * 0.3)));
+  const promptTokens = Math.max(1200, tpm - completion - 150);
+  const budgetChars = Math.max(2000, Math.floor(promptTokens * 0.8) * 4);
+
+  const attempt = async (ctxChars: number, historyChars: number, maxOut: number) => {
+    let used = 0;
+    const messages = [
+      { role: "system", content: SYSTEM },
+      { role: "user", content: buildContext(body, ctxChars) },
+      ...cleanHistory(
+        body.messages
+          .slice(-6)
+          .reverse()
+          .filter((m) => (used += m.content.length) <= historyChars)
+          .reverse(),
+      ),
+    ];
+    try {
+      return await fetch(`${baseUrl}/v1/chat/completions`, {
+        method: "POST",
+        signal: request.signal,
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          temperature: 0.3,
+          max_tokens: maxOut,
+          stream: true,
+        }),
+      });
+    } catch (error) {
+      const secondary = getConfiguredApiKey("DEEPSEEK_API_KEY");
+      if (secondary) return streamDeepSeek(body, request, secondary);
+      throw new Error(
+        "Wireflow could not be reached. Check WIREFLOW_BASE_URL and WIREFLOW_API_KEY, or set a valid fallback provider.",
+      );
+    }
+  };
+
+  let upstream;
+  try {
+    upstream = await attempt(budgetChars, Math.floor(budgetChars * 0.25), completion);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Wireflow request failed.";
+    return new Response(message, { status: 502 });
+  }
+
+  if (upstream.status === 413) {
+    const smaller = Math.max(1200, Math.floor(budgetChars / 3));
+    upstream = await attempt(smaller, Math.floor(smaller * 0.25), Math.floor(smaller / 4));
+  }
+
+  if (!upstream.ok || !upstream.body) {
+    const t = await upstream.text().catch(() => "");
+    const msg = explainAiError(upstream.status, t);
+    return new Response(msg, { status: upstream.status });
+  }
+
+  const enc = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      for await (const ev of sse(upstream.body!)) {
+        const delta = ev.choices?.[0]?.delta;
+        if (delta?.content) controller.enqueue(enc.encode(delta.content));
+      }
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+  });
+}
+
+/** DeepSeek — kept as fallback for older deployments. */
+async function streamDeepSeek(body: Body, request: Request, apiKey: string) {
+  const model = (process.env["DEEPSEEK_MODEL"] ?? "deepseek-chat").trim();
+  // DeepSeek has generous limits; set a reasonable budget for context.
+  const tpm = Number(process.env["DEEPSEEK_TPM"] ?? 50000) || 50000;
+
+  // Reserve tokens for completion and give the rest to context.
   const completion = Math.min(4000, Math.max(1024, Math.floor(tpm * 0.3)));
   const promptTokens = Math.max(1200, tpm - completion - 150);
   // ~4 chars per token; 0.8 leaves room for the system prompt and history.
@@ -247,7 +410,7 @@ async function streamGroq(body: Body, request: Request, apiKey: string) {
           .reverse(),
       ),
     ];
-    return fetch("https://api.groq.com/openai/v1/chat/completions", {
+    return fetch("https://api.deepseek.com/chat/completions", {
       method: "POST",
       signal: request.signal,
       headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
@@ -255,7 +418,7 @@ async function streamGroq(body: Body, request: Request, apiKey: string) {
         model,
         messages,
         temperature: 0.3,
-        max_completion_tokens: maxOut,
+        max_tokens: maxOut,
         stream: true,
       }),
     });
@@ -271,19 +434,11 @@ async function streamGroq(body: Body, request: Request, apiKey: string) {
 
   if (!upstream.ok || !upstream.body) {
     const t = await upstream.text().catch(() => "");
-    let msg = "The AI request failed.";
-    try {
-      msg = JSON.parse(t)?.error?.message ?? msg;
-    } catch {
-      /* ignore */
+    const retryWithSecondary = shouldFallbackToSecondaryProvider(upstream.status, t);
+    if (retryWithSecondary && process.env["LOVABLE_API_KEY"]) {
+      return streamLovable(body, request, process.env["LOVABLE_API_KEY"]!);
     }
-    if (upstream.status === 413 || /request too large/i.test(msg))
-      msg =
-        "This project is too large for the current AI plan. Try a smaller project or raise GROQ_TPM in .env.";
-    else if (upstream.status === 429)
-      msg =
-        "Groq's free limit was reached (8000 tokens/minute). Wait about a minute, then send your message again.";
-    return new Response(msg, { status: upstream.status });
+    return new Response(explainAiError(upstream.status, t), { status: upstream.status });
   }
 
   const enc = new TextEncoder();

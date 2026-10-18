@@ -39,7 +39,7 @@ function friendly(e: unknown) {
     "auth/email-already-in-use": "That email already has an account — sign in instead.",
     "auth/weak-password": "Password must be at least 6 characters.",
     "auth/invalid-email": "Please enter a valid email.",
-    "auth/popup-closed-by-user": "Google sign-in was closed.",
+    "auth/popup-closed-by-user": "Sign-in was closed.",
     "auth/unauthorized-domain": "This domain isn't authorised in Firebase Authentication settings.",
   };
   return map[code] ?? (e as Error)?.message ?? "Something went wrong";
@@ -49,12 +49,11 @@ function isConfigIssue(e: unknown) {
   return CONFIG_CODES.has((e as { code?: string })?.code ?? "");
 }
 
-function RecoverySteps({ method }: { method: "email" | "google" }) {
+function RecoverySteps({ method }: { method: "email" | "google" | "github" }) {
+  const label = method === "email" ? "Email/Password" : method === "github" ? "GitHub" : "Google";
   return (
     <div className="mt-4 rounded-md border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
-      <p className="font-semibold text-amber-400">
-        {method === "email" ? "Email/Password" : "Google"} sign-in isn't enabled in Firebase yet
-      </p>
+      <p className="font-semibold text-amber-400">{label} sign-in isn't enabled in Firebase yet</p>
       <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted-foreground">
         <li>
           Open the{" "}
@@ -73,10 +72,7 @@ function RecoverySteps({ method }: { method: "email" | "google" }) {
         </li>
         <li>
           On the <span className="text-foreground">Sign-in method</span> tab, enable{" "}
-          <span className="text-foreground">
-            {method === "email" ? "Email/Password" : "Google"}
-          </span>{" "}
-          and save.
+          <span className="text-foreground">{label}</span> and save.
         </li>
         <li>
           If you see a domain error, add this site's domain under{" "}
@@ -95,7 +91,7 @@ function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [configIssue, setConfigIssue] = useState<"email" | "google" | null>(null);
+  const [configIssue, setConfigIssue] = useState<"email" | "google" | "github" | null>(null);
 
   useEffect(() => {
     if (user) nav({ to: "/projects", replace: true });
@@ -126,6 +122,20 @@ function AuthPage() {
       setConfigIssue(null);
     } catch (err) {
       if (isConfigIssue(err)) setConfigIssue("google");
+      toast.error(friendly(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function github() {
+    setBusy(true);
+    try {
+      const { auth } = await getFirebase();
+      const m = await import("firebase/auth");
+      await m.signInWithPopup(auth, new m.GithubAuthProvider());
+      setConfigIssue(null);
+    } catch (err) {
+      if (isConfigIssue(err)) setConfigIssue("github");
       toast.error(friendly(err));
     } finally {
       setBusy(false);
@@ -196,6 +206,14 @@ function AuthPage() {
             disabled={busy || loading}
           >
             Continue with Google
+          </Button>
+          <Button
+            variant="secondary"
+            className="mt-2 w-full"
+            onClick={github}
+            disabled={busy || loading}
+          >
+            Continue with GitHub
           </Button>
           <div className="mt-4 flex justify-between text-sm text-muted-foreground">
             <button

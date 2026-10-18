@@ -13,7 +13,8 @@ const TTL_MS = 30 * 60 * 1000;
 async function hmacKey() {
   const secret = (
     process.env["RUNTIME_SECRET"] ??
-    process.env["GROQ_API_KEY"] ??
+    process.env["WIREFLOW_API_KEY"] ??
+    process.env["DEEPSEEK_API_KEY"] ??
     "vexo-dev-secret"
   ).trim();
   return crypto.subtle.importKey(

@@ -1,4 +1,5 @@
 <!-- LOVABLE:BEGIN -->
+
 > [!IMPORTANT]
 > This project is connected to [Lovable](https://lovable.dev). Avoid rewriting
 > published git history — force pushing, or rebasing/amending/squashing commits
@@ -7,6 +8,7 @@
 >
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
+
 <!-- LOVABLE:END -->
 
 # Project notes
@@ -16,6 +18,7 @@ TanStack Router/Start, with a Monaco editor, a
 sandbox preview, a terminal, Firebase auth/Firestore, and an AI agent.
 
 ## Commands
+
 - Dev: `npx vite dev --port 12000 --host 0.0.0.0`
 - Build: `npm run build`; typecheck: `npx tsc --noEmit`; lint: `npx eslint src/`
 - Deliverable: `git archive --format=zip -o public/vexo-learning-hub.zip HEAD`.
@@ -24,6 +27,7 @@ sandbox preview, a terminal, Firebase auth/Firestore, and an AI agent.
   `.env` is gitignored, so real secrets can never enter the bundle.
 
 ## Architecture notes
+
 - `src/lib/vexo-engine.ts` — file ops, `parseAgent` (`<vexo-file>`, `<vexo-image>`,
   `<vexo-command>`, `<vexo-done>`), `applyOps`, `buildPreview`. The preview inlines
   CSS/JS into one HTML document; embedded `data:` image URLs pass through untouched.
@@ -36,6 +40,7 @@ sandbox preview, a terminal, Firebase auth/Firestore, and an AI agent.
   it is replaced with a path marker to protect the token budget.
 
 ## Constraints
+
 - Keep the Vexo logo, branding, and colours. Do not redesign.
 - Scope is a plain code editor. Do not add account-grouping, cohort, role,
   catalogue, or progress-tracking features — no LMS-style screens.

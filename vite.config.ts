@@ -12,6 +12,8 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  // Use a listening Node server for local and production runtime entry points.
+  nitro: { preset: "node-server" },
   vite: {
     server: {
       host: true,

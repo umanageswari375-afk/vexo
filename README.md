@@ -47,14 +47,16 @@ Copy `.env.example` to `.env` and fill in the values:
 | `GOOGLE_API_KEY`                  | `firebase-config.functions.ts`, `api/agent.ts` | Firebase **web** API key (public identifier). Required for auth and Firestore. |
 | `GOOGLE_ANALYTICS_MEASUREMENT_ID` | `firebase-config.functions.ts`                 | Optional, enables Firebase Analytics.                                          |
 | `LOVABLE_API_KEY`                 | `api/agent.ts`                                 | Server-side key for the AI agent. **Never** expose this in the browser.        |
+| `DEEPSEEK_API_KEY`                | `api/agent.ts`                                 | DeepSeek API key for the AI agent. Get your key at https://platform.deepseek.com/ |
+| `DEEPSEEK_MODEL`                  | `api/agent.ts`                                 | DeepSeek model to use (default: deepseek-chat)                                  |
+| `DEEPSEEK_TPM`                    | `api/agent.ts`                                 | Tokens-per-minute limit for DeepSeek (default: 50000)                          |
 
 Firebase client identifiers (`authDomain`, `projectId`, `storageBucket`,
 `messagingSenderId`, `appId`) live in `src/lib/firebase-config.functions.ts` and
 are served to the browser at runtime by a server function. Only the API key is
 kept in the environment.
 
-`GROQ_API_KEY`, `GROQ_MODEL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` and `PORT` are not
-read by any code in this project.
+`DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, `DEEPSEEK_TPM`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` and `PORT` are used by the AI agent and runtime authentication.
 
 ## Development
 
@@ -85,7 +87,7 @@ Authentication and Firestore are wired up through `src/lib/firebase.ts` and
 To use it you must:
 
 1. Set `GOOGLE_API_KEY` in `.env`.
-2. Enable the sign-in providers you want (Email/Password, Google) in the
+2. Enable the sign-in providers you want (Email/Password, Google, GitHub) in the
    Firebase console under Authentication → Sign-in method.
 3. Create a Firestore database and publish rules that let each user read and
    write only their own `users/{uid}` documents.

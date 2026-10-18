@@ -96,7 +96,11 @@
   --editor: oklch(0.14 0.012 250);
   --gradient-primary: linear-gradient(135deg, var(--primary), var(--primary-glow));
   --shadow-glow: 0 0 40px -8px color-mix(in oklab, var(--primary) 45%, transparent);
-  --chart-1: oklch(0.88 0.2 128); --chart-2: oklch(0.8 0.17 170); --chart-3: oklch(0.82 0.15 80); --chart-4: oklch(0.7 0.15 250); --chart-5: oklch(0.66 0.21 25);
+  --chart-1: oklch(0.88 0.2 128);
+  --chart-2: oklch(0.8 0.17 170);
+  --chart-3: oklch(0.82 0.15 80);
+  --chart-4: oklch(0.7 0.15 250);
+  --chart-5: oklch(0.66 0.21 25);
   --sidebar: oklch(0.185 0.013 250);
   --sidebar-foreground: oklch(0.95 0.01 120);
   --sidebar-primary: oklch(0.88 0.2 128);
@@ -121,11 +125,27 @@
   }
 }
 
-@utility bg-gradient-primary { background-image: var(--gradient-primary); }
-@utility shadow-glow { box-shadow: var(--shadow-glow); }
+@utility bg-gradient-primary {
+  background-image: var(--gradient-primary);
+}
+@utility shadow-glow {
+  box-shadow: var(--shadow-glow);
+}
 @utility grid-bg {
-  background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
   background-size: 40px 40px;
 }
-@keyframes vexo-float { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-10px) } }
-@utility animate-float { animation: vexo-float 5s ease-in-out infinite; }
+@keyframes vexo-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+@utility animate-float {
+  animation: vexo-float 5s ease-in-out infinite;
+}
