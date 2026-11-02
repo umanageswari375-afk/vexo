@@ -44,8 +44,11 @@ Copy `.env.example` to `.env` and fill in the values:
 
 | Variable                          | Used by                                        | Notes                                                                          |
 | --------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------ |
-| `GOOGLE_API_KEY`                  | `firebase-config.functions.ts`, `api/agent.ts` | Firebase **web** API key (public identifier). Required for auth and Firestore. |
+| `GOOGLE_API_KEY`                  | `firebase-config.functions.ts`                 | Firebase **web** API key (public identifier). Required for auth and Firestore. |
 | `GOOGLE_ANALYTICS_MEASUREMENT_ID` | `firebase-config.functions.ts`                 | Optional, enables Firebase Analytics.                                          |
+| `GEMINI_API_KEY`                  | `api/agent.ts`                                 | Server-side Google AI Studio key for the AI agent. Get one at https://aistudio.google.com/apikey. |
+| `GEMINI_MODEL`                    | `api/agent.ts`                                 | Gemini model (default: `gemini-3.6-flash`).                                    |
+| `GEMINI_TPM`                      | `api/agent.ts`                                 | Token budget for Gemini requests (default: 50000).                             |
 | `LOVABLE_API_KEY`                 | `api/agent.ts`                                 | Server-side key for the AI agent. **Never** expose this in the browser.        |
 | `DEEPSEEK_API_KEY`                | `api/agent.ts`                                 | DeepSeek API key for the AI agent. Get your key at https://platform.deepseek.com/ |
 | `DEEPSEEK_MODEL`                  | `api/agent.ts`                                 | DeepSeek model to use (default: deepseek-chat)                                  |
@@ -56,7 +59,11 @@ Firebase client identifiers (`authDomain`, `projectId`, `storageBucket`,
 are served to the browser at runtime by a server function. Only the API key is
 kept in the environment.
 
-`DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, `DEEPSEEK_TPM`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` and `PORT` are used by the AI agent and runtime authentication.
+The AI agent uses `GEMINI_API_KEY` as its primary provider, then checks
+`WIREFLOW_API_KEY`, `DEEPSEEK_API_KEY` and `LOVABLE_API_KEY`. Set the Gemini key
+in your deployment environment (for example, Render's Environment settings);
+keep it server-side and do not use the Firebase `GOOGLE_API_KEY` for Gemini.
+`ADMIN_EMAIL`, `ADMIN_PASSWORD` and `PORT` are used by runtime authentication.
 
 ## Development
 
@@ -87,8 +94,8 @@ Authentication and Firestore are wired up through `src/lib/firebase.ts` and
 To use it you must:
 
 1. Set `GOOGLE_API_KEY` in `.env`.
-2. Enable the sign-in providers you want (Email/Password, Google, GitHub) in the
-   Firebase console under Authentication → Sign-in method.
+2. In Firebase project `vexo-b17a3`, enable the sign-in providers you want
+   (Email/Password, Google, GitHub) under Authentication → Sign-in method.
 3. Create a Firestore database and publish rules that let each user read and
    write only their own `users/{uid}` documents.
 4. Add the deployment domain under Authentication → Settings → Authorized

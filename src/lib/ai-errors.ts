@@ -12,11 +12,19 @@ export function explainAiError(status: number, rawText: string): string {
 
   const lower = message.toLowerCase();
 
-  if (status === 402 || /insufficient balance|insufficient credits|not enough credits|credit balance/i.test(lower)) {
+  if (
+    status === 402 ||
+    /insufficient balance|insufficient credits|not enough credits|credit balance/i.test(lower)
+  ) {
     return "Your AI account does not have enough credits. Add funds to the provider account or switch to a different funded API key.";
   }
 
-  if (status === 401 || /invalid api key|api key expired|unauthorized|authentication/i.test(lower)) {
+  if (
+    status === 401 ||
+    /invalid api key|api key not valid|not a valid api key|api key expired|unauthorized|authentication/i.test(
+      lower,
+    )
+  ) {
     return "Your AI API key is invalid or expired. Update the key in .env and try again.";
   }
 
@@ -40,6 +48,8 @@ export function shouldFallbackToSecondaryProvider(status: number, rawText: strin
   return (
     status === 402 ||
     status === 401 ||
-    /insufficient balance|insufficient credits|not enough credits|invalid api key|expired|unauthorized/.test(lower)
+    /insufficient balance|insufficient credits|not enough credits|invalid api key|api key not valid|not a valid api key|expired|unauthorized/.test(
+      lower,
+    )
   );
 }

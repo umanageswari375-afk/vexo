@@ -121,8 +121,8 @@ export const Route = createFileRoute("/api/agent")({
           return new Response("Please sign in again.", { status: 401 });
         const body = (await request.json()) as Body;
 
-        const openAiKey = getConfiguredApiKey("OPENAI_API_KEY");
-        if (openAiKey) return streamOpenAI(body, request, openAiKey);
+        const geminiKey = getConfiguredApiKey("GEMINI_API_KEY");
+        if (geminiKey) return streamGemini(body, request, geminiKey);
 
         const wireflowKey = getConfiguredApiKey("WIREFLOW_API_KEY");
         if (wireflowKey) return streamWireflow(body, request, wireflowKey);
@@ -133,7 +133,7 @@ export const Route = createFileRoute("/api/agent")({
         const lovableKey = getConfiguredApiKey("LOVABLE_API_KEY");
         if (lovableKey) return streamLovable(body, request, lovableKey);
         return new Response(
-          "AI is not configured. Add OPENAI_API_KEY to your .env file (or set WIREFLOW_API_KEY / DEEPSEEK_API_KEY as fallbacks).",
+          "AI is not configured. Add GEMINI_API_KEY to your environment (or set WIREFLOW_API_KEY, DEEPSEEK_API_KEY, or LOVABLE_API_KEY).",
           { status: 500 },
         );
       },
@@ -226,11 +226,10 @@ async function streamLovable(body: Body, request: Request, apiKey: string) {
   return new Response(stream, { headers });
 }
 
-/** OpenAI — primary provider for local development. */
-async function streamOpenAI(body: Body, request: Request, apiKey: string) {
-  const baseUrl = (process.env["OPENAI_BASE_URL"] ?? "https://api.openai.com").trim().replace(/\/$/, "");
-  const model = (process.env["OPENAI_MODEL"] ?? "gpt-4o-mini").trim();
-  const tpm = Number(process.env["OPENAI_TPM"] ?? 50000) || 50000;
+/** Gemini — primary provider. */
+async function streamGemini(body: Body, request: Request, apiKey: string) {
+  const model = (process.env["GEMINI_MODEL"] ?? "gemini-3.6-flash").trim();
+  const tpm = Number(process.env["GEMINI_TPM"] ?? 50000) || 50000;
 
   const completion = Math.min(4000, Math.max(1024, Math.floor(tpm * 0.3)));
   const promptTokens = Math.max(1200, tpm - completion - 150);
@@ -238,32 +237,35 @@ async function streamOpenAI(body: Body, request: Request, apiKey: string) {
 
   const attempt = async (ctxChars: number, historyChars: number, maxOut: number) => {
     let used = 0;
-    const messages = [
-      { role: "system", content: SYSTEM },
-      { role: "user", content: buildContext(body, ctxChars) },
+    const contents = [
+      { role: "user", parts: [{ text: buildContext(body, ctxChars) }] },
       ...cleanHistory(
         body.messages
           .slice(-6)
           .reverse()
           .filter((m) => (used += m.content.length) <= historyChars)
           .reverse(),
-      ),
+      ).map((message) => ({
+        role: message.role === "assistant" ? "model" : "user",
+        parts: [{ text: message.content }],
+      })),
     ];
-    return fetch(`${baseUrl}/v1/chat/completions`, {
-      method: "POST",
-      signal: request.signal,
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${apiKey}`,
+    return fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`,
+      {
+        method: "POST",
+        signal: request.signal,
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: SYSTEM }] },
+          contents,
+          generationConfig: { temperature: 0.3, maxOutputTokens: maxOut },
+        }),
       },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: 0.3,
-        max_tokens: maxOut,
-        stream: true,
-      }),
-    });
+    );
   };
 
   let upstream = await attempt(budgetChars, Math.floor(budgetChars * 0.25), completion);
@@ -282,8 +284,16 @@ async function streamOpenAI(body: Body, request: Request, apiKey: string) {
   const stream = new ReadableStream({
     async start(controller) {
       for await (const ev of sse(upstream.body!)) {
-        const delta = ev.choices?.[0]?.delta;
-        if (delta?.content) controller.enqueue(enc.encode(delta.content));
+        const event = ev as {
+          candidates?: Array<{
+            content?: { parts?: Array<{ text?: string; thought?: boolean }> };
+          }>;
+        };
+        const text = event.candidates?.[0]?.content?.parts
+          ?.filter((part) => !part.thought)
+          .map((part) => part.text ?? "")
+          .join("");
+        if (text) controller.enqueue(enc.encode(text));
       }
       controller.close();
     },

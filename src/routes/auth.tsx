@@ -65,7 +65,7 @@ function RecoverySteps({ method }: { method: "email" | "google" | "github" }) {
           >
             Firebase Console
           </a>{" "}
-          and select your project (<span className="font-mono">vexo-77de7</span>).
+          and select your project (<span className="font-mono">vexo-b17a3</span>).
         </li>
         <li>
           Go to <span className="text-foreground">Build → Authentication → Get started</span>.

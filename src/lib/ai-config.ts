@@ -1,4 +1,5 @@
-const PLACEHOLDER_RE = /^(?:your_[a-z0-9_]+(?:_here)?|replace_with_.+|example|demo|placeholder|changeme|dummy|mock|test(?:_[a-z0-9_]+)?|sk-test(?:_[a-z0-9]+)?|api[_-]?key[_-]?here)$/i;
+const PLACEHOLDER_RE =
+  /^(?:your_[a-z0-9_]+(?:_here)?|replace_with_.+|example|demo|placeholder|changeme|dummy|mock|test(?:_[a-z0-9_]+)?|sk-test(?:_[a-z0-9]+)?|api[_-]?key[_-]?here)$/i;
 
 export function normalizeConfiguredKey(raw?: string): string {
   const value = (raw ?? "").trim();
